@@ -44,7 +44,7 @@ Tiga tahap TST:
 | Tahap | Isi | Status |
 |---|---|---|
 | Tugas 1 | Makalah DDD: deskripsi sistem, bounded context, dekomposisi subdomain | ✅ Selesai |
-| Tugas 2 | Microservice di STB, akses publik lewat Cloudflare Tunnel, Docker, README.pdf | ⏳ Sedang dikerjakan |
+| Tugas 2 | Microservice di STB, akses publik lewat Cloudflare Tunnel, Docker, README.pdf | 🔨 Fondasi online di `https://inggrisbng2.stei.site/api/health` (gateway, core-service, PocketBase). Endpoint fitur belum dibuat |
 | Tugas 3 | Layanan integrasi (API kita + ≥ 2 kelompok lain) + aplikasi mobile + video | ⏳ Berikutnya |
 
 Batas waktu resmi (slide 24): URL microservice di API Registry **akhir Minggu 14 (29 Nov 2026)**,
@@ -233,6 +233,12 @@ Adapter OSRM di core service **adalah ACL**. Sebut dengan istilah ini di README 
 | **Domain Event** | `JalanSelesai` → memperbarui progres target harian |
 | **Ubiquitous Language** | Istilah yang **sama** di makalah, endpoint, class, dan teks di app |
 
+Karena kontrak API memakai bahasa Inggris, nama di kode juga bahasa Inggris. Padanannya dengan
+istilah makalah: `RencanaJalan` → **`WalkPlan`**, `KalkulatorKalori` → **`CalorieCalculator`**,
+`JalanSelesai` → **`WalkCompleted`**, `Koordinat` → **`LatLng`**, `Jarak` → **`Distance`**,
+`Kalori` → **`Calories`**, `PenyediaRute` → **`RouteProvider`**. Cantumkan tabel padanan ini di
+README supaya penilai bisa menghubungkan makalah dengan kode.
+
 ### 6.5 Struktur folder core service
 
 ```
@@ -253,16 +259,26 @@ ditunjukkan langsung di video.
 
 ## 7. Rancangan endpoint core service
 
-Draf awal. Versi resminya ditulis di `openapi.yaml` dan ditampilkan lewat Swagger UI.
+Kontrak resmi ada di **[`backend/openapi.yaml`](../backend/openapi.yaml)** (OpenAPI 3.0.3). Tabel di
+bawah adalah ringkasannya. Kalau berbeda, **`openapi.yaml` yang benar**.
+
+Konvensi (diputuskan: **bahasa Inggris**):
+
+- Nama field JSON memakai bahasa Inggris dengan camelCase dan satuan di akhir nama:
+  `distanceM`, `durationMin`, `weightKg`, `estimatedCaloriesKcal`.
+- Kode error memakai bahasa Inggris UPPER_SNAKE_CASE (`NOT_FOUND`, `ROUTE_NOT_FOUND`), sedangkan teks
+  `message` tetap bahasa Indonesia karena ditampilkan ke pengguna.
+- Koordinat selalu `{ "lat": ..., "lng": ... }`.
 
 | Method | Path | Auth | Fungsi |
 |---|---|---|---|
 | GET | `/api/health` | – | Cek service hidup (dipakai untuk cek tunnel, slide 13) |
 | POST | `/api/auth/register` | – | Daftar pengguna (data uji saja) |
 | POST | `/api/auth/login` | – | Masuk, mengembalikan JWT |
-| GET | `/api/me` | JWT | Profil pengguna (termasuk berat badan untuk hitung kalori) |
+| GET / PATCH | `/api/me` | JWT | Lihat / ubah profil (termasuk berat badan untuk hitung kalori) |
 | GET / PUT | `/api/targets` | JWT | Lihat / ubah target berat badan dan target harian |
-| POST | `/api/walk-plans` | JWT atau API key | Buat rencana jalan: `{asal, tujuan}` → rute, jarak, durasi, estimasi kalori, sisa target hari ini |
+| POST | `/api/walk-plans/estimate` | API key atau JWT | Hitung rute, jarak, durasi, dan kalori **tanpa menyimpan**. Endpoint utama untuk kelompok lain |
+| POST | `/api/walk-plans` | JWT | Buat dan simpan rencana jalan: `{origin, destination}` → rute, jarak, durasi, kalori, sisa target hari ini |
 | GET | `/api/walk-plans` | JWT | Riwayat rencana jalan milik pengguna |
 | GET | `/api/walk-plans/{id}` | JWT | Detail satu rencana |
 | PATCH | `/api/walk-plans/{id}/complete` | JWT | Tandai selesai, picu `JalanSelesai`, perbarui progres |
@@ -280,21 +296,25 @@ Contoh respons `POST /api/walk-plans`:
 
 ```json
 {
-  "id": "wp_01H...",
-  "status": "direncanakan",
-  "jarak_meter": 1850,
-  "durasi_menit": 24,
-  "estimasi_kalori": 92,
-  "sisa_target_hari_ini_meter": 1150,
-  "rute": { "polyline": "...", "penyedia": "osrm" },
-  "dibuat_pada": "2026-11-24T08:00:00+07:00"
+  "id": "wp7k2m9x4q1abcd",
+  "status": "planned",
+  "origin": { "lat": -6.8915, "lng": 107.6098 },
+  "destination": { "lat": -6.9025, "lng": 107.6186 },
+  "destinationName": "Taman Lansia",
+  "distanceM": 2258,
+  "durationMin": 30,
+  "estimatedCaloriesKcal": 119,
+  "remainingDailyTargetM": 742,
+  "route": { "provider": "osrm", "geometry": { "type": "LineString", "coordinates": [[107.6098, -6.8915], "..."] } },
+  "createdAt": "2026-11-23T08:00:00.000Z",
+  "completedAt": null
 }
 ```
 
 Format error yang seragam:
 
 ```json
-{ "error": { "kode": "RUTE_TIDAK_DITEMUKAN", "pesan": "Rute jalan kaki ke tujuan ini tidak tersedia." } }
+{ "error": { "code": "ROUTE_NOT_FOUND", "message": "Rute jalan kaki ke tujuan ini tidak tersedia." } }
 ```
 
 ---
@@ -464,7 +484,7 @@ Urutan koordinat OSRM adalah **longitude dulu, baru latitude**.
    rate limit di Nginx, supaya STB kita tidak diblokir.
 2. Kirim **User-Agent yang jelas**, misalnya `FullyFilled-TugasBesar/1.0`.
 3. **Timeout** 8–10 detik. Kalau OSRM gagal, kembalikan error yang rapi
-   (`RUTE_TIDAK_TERSEDIA`), jangan crash.
+   (`503 ROUTING_UNAVAILABLE`; kalau jalurnya memang tidak ada, `422 ROUTE_NOT_FOUND`), jangan crash.
 4. Bungkus OSRM dalam **satu antarmuka adapter** (`PenyediaRute`) di lapisan infrastructure. Domain
    hanya mengenal `PenyediaRute`, bukan OSRM, sehingga mesin rute bisa diganti tanpa mengubah
    domain atau endpoint.

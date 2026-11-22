@@ -4,7 +4,7 @@ import { config } from "../../../config";
 export const healthRouter = Router();
 
 healthRouter.get("/health", async (_req, res) => {
-  let database: "ok" | "failed" = "failed";
+  let database: "ok" | "down" = "down";
   try {
     const r = await fetch(`${config.pbUrl}/api/health`, {
       signal: AbortSignal.timeout(3000),
@@ -14,9 +14,9 @@ healthRouter.get("/health", async (_req, res) => {
     // PocketBase tidak terjangkau: biarkan status "gagal"
   }
 
-  const sehat = database === "ok";
-  res.status(sehat ? 200 : 503).json({
-    status: sehat ? "ok" : "terganggu",
+  const healthy = database === "ok";
+  res.status(healthy ? 200 : 503).json({
+    status: healthy ? "ok" : "terganggu",
     layanan: "fullyfilled-core",
     database,
     waktu: new Date().toISOString(),

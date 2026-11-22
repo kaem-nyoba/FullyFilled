@@ -1,0 +1,579 @@
+openapi: 3.0.3
+info:
+  title: FullyFilled Core Service (inggrisbng2)
+  version: 0.1.0
+  description: |
+    Core service FullyFilled: rencana jalan sehat menuju target berat badan.
+    Menghitung rute jalan kaki (lewat OSRM), estimasi kalori, dan progres target harian.
+
+    **Konvensi**
+    - Nama field dan kode error memakai bahasa Inggris (camelCase untuk field, UPPER_SNAKE_CASE untuk kode error).
+    - Teks `message` di error memakai bahasa Indonesia karena ditampilkan ke pengguna aplikasi.
+    - Koordinat selalu `{ "lat": ..., "lng": ... }` (latitude dulu). Urutan `lng,lat` milik OSRM
+      tidak pernah keluar dari service ini.
+    - Satuan ditulis di akhir nama field: `distanceM` (meter), `durationMin` (menit), `weightKg`, `caloriesKcal`.
+    - Waktu memakai format ISO 8601 UTC, misalnya `2026-11-23T08:00:00.000Z`.
+
+    **Autentikasi**
+    - Pengguna aplikasi: `Authorization: Bearer <JWT>` dari `POST /auth/login`.
+    - Kelompok lain (server ke server): header `X-API-Key`, satu kunci per kelompok. Hubungi kelompok inggrisbng2.
+
+    **Batas pemanggilan**
+    10 request/detik per IP asli (header `CF-Connecting-IP`), dengan toleransi lonjakan 20 request.
+    Kelebihan dijawab `429 TOO_MANY_REQUESTS`.
+  contact:
+    name: Kelompok inggrisbng2 (FullyFilled)
+
+servers:
+  - url: https://inggrisbng2.stei.site/api
+    description: Produksi (STB, lewat Cloudflare Tunnel)
+  - url: http://localhost/api
+    description: Pengembangan lokal (Docker Compose)
+
+tags:
+  - name: System
+  - name: Auth
+  - name: Profile
+  - name: Targets
+  - name: Walk plans
+  - name: Progress
+
+security:
+  - BearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags: [System]
+      summary: Cek kesehatan service dan database
+      security: []
+      responses:
+        '200':
+          description: Service dan database sehat
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+              example: { status: ok, service: fullyfilled-core, database: ok, time: '2026-11-23T08:00:00.000Z' }
+        '503':
+          description: Service hidup tetapi database terganggu
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+              example: { status: degraded, service: fullyfilled-core, database: down, time: '2026-11-23T08:00:00.000Z' }
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Daftar akun baru (data uji saja)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+            example: { name: Nyam Tester, email: tester@fullyfilled.test, password: Rahasia123, weightKg: 68 }
+      responses:
+        '201':
+          description: Akun dibuat dan langsung masuk
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '409':
+          description: Email sudah terdaftar
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: { code: EMAIL_TAKEN, message: Email sudah terdaftar. } }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Masuk dan dapatkan JWT
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+            example: { email: tester@fullyfilled.test, password: Rahasia123 }
+      responses:
+        '200':
+          description: Berhasil masuk
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401':
+          description: Email atau kata sandi salah
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: { code: INVALID_CREDENTIALS, message: Email atau kata sandi salah. } }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /me:
+    get:
+      tags: [Profile]
+      summary: Profil pengguna yang sedang masuk
+      responses:
+        '200':
+          description: Profil pengguna
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [Profile]
+      summary: Ubah nama atau berat badan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateProfileRequest' }
+            example: { weightKg: 67.5 }
+      responses:
+        '200':
+          description: Profil setelah diubah
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /targets:
+    get:
+      tags: [Targets]
+      summary: Target berat badan dan target jalan harian
+      responses:
+        '200':
+          description: Target pengguna
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Target' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: Pengguna belum pernah mengisi target
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: { code: TARGET_NOT_SET, message: Target belum diatur. } }
+    put:
+      tags: [Targets]
+      summary: Buat atau ganti target
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TargetInput' }
+            example: { targetWeightKg: 62, dailyWalkTargetM: 3000 }
+      responses:
+        '200':
+          description: Target setelah disimpan
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Target' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /walk-plans/estimate:
+    post:
+      tags: [Walk plans]
+      summary: Hitung rute jalan kaki dan kalori tanpa menyimpan (untuk kelompok lain)
+      description: |
+        Endpoint utama untuk integrasi kelompok lain. Tidak butuh akun pengguna, cukup `X-API-Key`.
+        Juga boleh dipanggil dengan JWT pengguna; bila `weightKg` dikosongkan, berat dari profil dipakai.
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EstimateRequest' }
+            example:
+              origin: { lat: -6.8915, lng: 107.6098 }
+              destination: { lat: -6.9025, lng: 107.6186 }
+              weightKg: 68
+      responses:
+        '200':
+          description: Hasil perhitungan
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Estimate' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/RouteNotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/RoutingUnavailable' }
+
+  /walk-plans:
+    post:
+      tags: [Walk plans]
+      summary: Buat rencana jalan dan simpan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateWalkPlanRequest' }
+            example:
+              origin: { lat: -6.8915, lng: 107.6098 }
+              destination: { lat: -6.9025, lng: 107.6186 }
+              destinationName: Taman Lansia
+      responses:
+        '201':
+          description: Rencana jalan dibuat
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WalkPlan' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/RouteNotFound' }
+        '503': { $ref: '#/components/responses/RoutingUnavailable' }
+    get:
+      tags: [Walk plans]
+      summary: Riwayat rencana jalan milik pengguna
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [planned, completed] }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      responses:
+        '200':
+          description: Daftar rencana jalan, terbaru lebih dulu
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WalkPlanList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /walk-plans/{id}:
+    parameters:
+      - $ref: '#/components/parameters/WalkPlanId'
+    get:
+      tags: [Walk plans]
+      summary: Detail satu rencana jalan
+      responses:
+        '200':
+          description: Rencana jalan
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WalkPlan' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /walk-plans/{id}/complete:
+    parameters:
+      - $ref: '#/components/parameters/WalkPlanId'
+    patch:
+      tags: [Walk plans]
+      summary: Tandai rencana jalan selesai dan perbarui progres hari ini
+      responses:
+        '200':
+          description: Rencana jalan yang sudah selesai beserta progres terbaru
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompleteWalkPlanResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Rencana jalan sudah selesai sebelumnya
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: { code: WALK_PLAN_ALREADY_COMPLETED, message: Rencana jalan ini sudah selesai. } }
+
+  /progress/today:
+    get:
+      tags: [Progress]
+      summary: Progres jalan hari ini (zona waktu Asia/Jakarta)
+      responses:
+        '200':
+          description: Progres hari ini
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Progress' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token dari `POST /auth/login` atau `POST /auth/register`.
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Satu kunci per kelompok, untuk pemanggilan server ke server.
+
+  parameters:
+    WalkPlanId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+      example: wp7k2m9x4q1abcd
+
+  responses:
+    ValidationError:
+      description: Data yang dikirim tidak valid
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: Data yang dikirim tidak valid.
+              details:
+                - { field: weightKg, message: Harus antara 20 dan 300. }
+    Unauthorized:
+      description: Belum masuk, token kedaluwarsa, atau API key salah
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: UNAUTHORIZED, message: Silakan masuk terlebih dahulu. } }
+    Forbidden:
+      description: Data ini milik pengguna lain
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: FORBIDDEN, message: Kamu tidak punya akses ke data ini. } }
+    NotFound:
+      description: Data tidak ditemukan
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: NOT_FOUND, message: Data tidak ditemukan. } }
+    TooManyRequests:
+      description: Melebihi batas pemanggilan (dijawab oleh gateway)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: TOO_MANY_REQUESTS, message: Terlalu banyak permintaan, coba lagi sebentar. } }
+    RouteNotFound:
+      description: Tidak ada jalur jalan kaki antara dua titik, atau jaraknya di luar batas 0,2–15 km
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: ROUTE_NOT_FOUND, message: Rute jalan kaki ke tujuan ini tidak tersedia. } }
+    RoutingUnavailable:
+      description: Mesin rute (OSRM) sedang tidak bisa dihubungi
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: ROUTING_UNAVAILABLE, message: Layanan rute sedang sibuk, coba lagi nanti. } }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Kode tetap untuk dibaca program.
+              enum:
+                - VALIDATION_ERROR
+                - INVALID_JSON
+                - UNAUTHORIZED
+                - INVALID_CREDENTIALS
+                - FORBIDDEN
+                - NOT_FOUND
+                - EMAIL_TAKEN
+                - TARGET_NOT_SET
+                - WALK_PLAN_ALREADY_COMPLETED
+                - ROUTE_NOT_FOUND
+                - ROUTING_UNAVAILABLE
+                - TOO_MANY_REQUESTS
+                - INTERNAL_ERROR
+            message:
+              type: string
+              description: Pesan untuk ditampilkan ke pengguna (bahasa Indonesia).
+            details:
+              type: array
+              description: Hanya ada pada `VALIDATION_ERROR`.
+              items:
+                type: object
+                required: [field, message]
+                properties:
+                  field: { type: string }
+                  message: { type: string }
+
+    Health:
+      type: object
+      required: [status, service, database, time]
+      properties:
+        status: { type: string, enum: [ok, degraded] }
+        service: { type: string, example: fullyfilled-core }
+        database: { type: string, enum: [ok, down] }
+        time: { type: string, format: date-time }
+
+    LatLng:
+      type: object
+      required: [lat, lng]
+      properties:
+        lat: { type: number, minimum: -90, maximum: 90, example: -6.8915 }
+        lng: { type: number, minimum: -180, maximum: 180, example: 107.6098 }
+
+    RegisterRequest:
+      type: object
+      required: [name, email, password, weightKg]
+      properties:
+        name: { type: string, minLength: 2, maxLength: 50 }
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8, maxLength: 72, description: Minimal 8 karakter, berisi huruf dan angka. }
+        weightKg: { type: number, minimum: 20, maximum: 300, description: Dipakai untuk menghitung kalori. }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+
+    AuthResponse:
+      type: object
+      required: [token, expiresIn, user]
+      properties:
+        token: { type: string, description: JWT untuk header Authorization. }
+        expiresIn: { type: integer, description: Masa berlaku token dalam detik., example: 604800 }
+        user: { $ref: '#/components/schemas/User' }
+
+    User:
+      type: object
+      required: [id, name, email, weightKg, createdAt]
+      properties:
+        id: { type: string, example: u3n8d2k5p0abcde }
+        name: { type: string, example: Nyam Tester }
+        email: { type: string, format: email }
+        weightKg: { type: number, example: 68 }
+        createdAt: { type: string, format: date-time }
+
+    UpdateProfileRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 2, maxLength: 50 }
+        weightKg: { type: number, minimum: 20, maximum: 300 }
+
+    TargetInput:
+      type: object
+      required: [targetWeightKg, dailyWalkTargetM]
+      properties:
+        targetWeightKg: { type: number, minimum: 20, maximum: 300 }
+        dailyWalkTargetM: { type: integer, minimum: 500, maximum: 20000, description: Target jarak jalan per hari dalam meter. }
+
+    Target:
+      allOf:
+        - $ref: '#/components/schemas/TargetInput'
+        - type: object
+          required: [currentWeightKg, updatedAt]
+          properties:
+            currentWeightKg: { type: number, description: Diambil dari profil pengguna. }
+            updatedAt: { type: string, format: date-time }
+
+    EstimateRequest:
+      type: object
+      required: [origin, destination]
+      properties:
+        origin: { $ref: '#/components/schemas/LatLng' }
+        destination: { $ref: '#/components/schemas/LatLng' }
+        weightKg:
+          type: number
+          minimum: 20
+          maximum: 300
+          description: Wajib bila memakai X-API-Key. Bila memakai JWT dan dikosongkan, diambil dari profil.
+
+    Route:
+      type: object
+      required: [provider, geometry]
+      properties:
+        provider: { type: string, enum: [osrm] }
+        geometry:
+          type: object
+          description: GeoJSON LineString. Urutan koordinat GeoJSON adalah [lng, lat].
+          required: [type, coordinates]
+          properties:
+            type: { type: string, enum: [LineString] }
+            coordinates:
+              type: array
+              items:
+                type: array
+                minItems: 2
+                maxItems: 2
+                items: { type: number }
+
+    Estimate:
+      type: object
+      required: [distanceM, durationMin, estimatedCaloriesKcal, route]
+      properties:
+        distanceM: { type: integer, example: 2258 }
+        durationMin: { type: integer, example: 30 }
+        estimatedCaloriesKcal:
+          type: integer
+          example: 119
+          description: 'MET jalan santai (3,5) × berat (kg) × durasi (jam), dibulatkan.'
+        route: { $ref: '#/components/schemas/Route' }
+
+    CreateWalkPlanRequest:
+      type: object
+      required: [origin, destination]
+      properties:
+        origin: { $ref: '#/components/schemas/LatLng' }
+        destination: { $ref: '#/components/schemas/LatLng' }
+        destinationName: { type: string, maxLength: 100, description: 'Nama tempat tujuan, misalnya dari API Maps kelompok Salma.' }
+
+    WalkPlan:
+      allOf:
+        - $ref: '#/components/schemas/Estimate'
+        - type: object
+          required: [id, status, origin, destination, remainingDailyTargetM, createdAt]
+          properties:
+            id: { type: string, example: wp7k2m9x4q1abcd }
+            status: { type: string, enum: [planned, completed] }
+            origin: { $ref: '#/components/schemas/LatLng' }
+            destination: { $ref: '#/components/schemas/LatLng' }
+            destinationName: { type: string, nullable: true, example: Taman Lansia }
+            remainingDailyTargetM:
+              type: integer
+              description: Sisa target jalan hari ini bila rencana ini diselesaikan. Tidak pernah negatif.
+              example: 742
+            createdAt: { type: string, format: date-time }
+            completedAt: { type: string, format: date-time, nullable: true }
+
+    WalkPlanList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/WalkPlan' }
+
+    Progress:
+      type: object
+      required: [date, walkedM, burnedKcal, dailyTargetM, remainingM, completedWalks]
+      properties:
+        date: { type: string, format: date, example: '2026-11-23' }
+        walkedM: { type: integer, example: 2258 }
+        burnedKcal: { type: integer, example: 119 }
+        dailyTargetM: { type: integer, example: 3000 }
+        remainingM: { type: integer, example: 742 }
+        completedWalks: { type: integer, example: 1 }
+
+    CompleteWalkPlanResponse:
+      type: object
+      required: [walkPlan, progress]
+      properties:
+        walkPlan: { $ref: '#/components/schemas/WalkPlan' }
+        progress: { $ref: '#/components/schemas/Progress' }
