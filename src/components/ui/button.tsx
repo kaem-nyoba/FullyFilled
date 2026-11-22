@@ -40,11 +40,11 @@ export function Button({
           borderRadius: radius.md,
         },
         !primary && { borderWidth: 2, borderColor: colors.border },
-        disabled && { opacity: 0.45 },
       ]}
       onPress={onPress}
       radius={radius.md}
-      style={style}
+      // Opacity di wrapper agar tepi 3D ikut memudar, bukan hanya mukanya.
+      style={[style, disabled && { opacity: 0.45 }]}
       testID={testID}
     >
       <Text

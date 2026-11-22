@@ -53,6 +53,8 @@ export function NumberField({ label, value, onChangeText, unit = 'kg', testID }:
           onFocus={() => setFocused(true)}
           style={{
             flex: 1,
+            // Tanpa minWidth, input web melebar sesuai lebar bawaannya dan mendorong satuan keluar.
+            minWidth: 0,
             height: '100%',
             padding: 0,
             fontFamily: fonts.black,

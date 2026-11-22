@@ -71,6 +71,7 @@ export function TextField({
           secureTextEntry={secure && hidden}
           style={{
             flex: 1,
+            minWidth: 0,
             height: '100%',
             padding: 0,
             fontFamily: fonts.bold,
