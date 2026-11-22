@@ -1,6 +1,7 @@
 import express from "express";
 import { healthRouter } from "./routes/health";
-import { ErrorHandler, notFound } from "./errors";
+import { walkPlansRouter } from "./routes/walkPlans";
+import { errorHandler, notFound } from "./errors";
 
 export function App() {
   const app = express();
@@ -9,8 +10,9 @@ export function App() {
   app.use(express.json({ limit: "100kb" }));
 
   app.use("/api", healthRouter);
+  app.use("/api", walkPlansRouter);
 
   app.use(notFound);
-  app.use(ErrorHandler);
+  app.use(errorHandler);
   return app;
 }

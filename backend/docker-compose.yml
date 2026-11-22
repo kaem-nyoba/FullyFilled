@@ -7,6 +7,7 @@ services:
     environment:
       PORT: 3000
       PB_URL: http://pocketbase:8090
+      API_KEYS: ${API_KEYS:-}
     expose: ["3000"] # hanya untuk jaringan internal Docker
     mem_limit: 256m
     cpus: 0.5
