@@ -16,9 +16,9 @@ healthRouter.get("/health", async (_req, res) => {
 
   const healthy = database === "ok";
   res.status(healthy ? 200 : 503).json({
-    status: healthy ? "ok" : "terganggu",
-    layanan: "fullyfilled-core",
+    status: healthy ? "ok" : "degraded",
+    service: "fullyfilled-core",
     database,
-    waktu: new Date().toISOString(),
+    time: new Date().toISOString(),
   });
 });

@@ -1,5 +1,5 @@
-import { findPlaceById, type Place } from '@/data/places';
-
+import { findPlaceById, USER_LOCATION, type Place } from '@/data/places';
+import { ApiError, ApiService, type WalkEstimate } from '@/services/ApiService';
 export type RouteStepKind = 'straight' | 'turn-right' | 'arrive';
 
 export type RouteStep = {
@@ -16,7 +16,9 @@ export type RouteResult = {
   distanceMeters: number;
   /** Estimasi berjalan kaki, dalam menit. */
   minutes: number;
+  caloriesKcal?: number;
   steps: RouteStep[];
+  
 };
 
 export class RouteError extends Error {
@@ -77,43 +79,48 @@ export function buildRoute(place: Place): RouteResult {
 }
 
 type FetchRouteOptions = {
-  delayMs?: number;
   signal?: AbortSignal;
+  /** Berat pengguna untuk menghitung kalori. */
+  weightKg?: number;
 };
 
-const abortError = () => new DOMException('Dibatalkan', 'AbortError');
+const DEFAULT_WEIGHT_KG = 65;
 
-/**
- * Mengambil rute jalan kaki. Saat ini tiruan: menunggu lalu mengembalikan rute contoh.
- * Ganti isinya dengan panggilan ke layanan rute sungguhan tanpa mengubah pemanggil.
- */
-export function fetchRoute(
+/** Memakai angka asli dari API, sementara teks langkah tetap dari rute contoh. */
+function withApiEstimate(base: RouteResult, estimate: WalkEstimate): RouteResult {
+  const scale = estimate.distanceM / base.distanceMeters;
+  return {
+    ...base,
+    distanceMeters: estimate.distanceM,
+    minutes: estimate.durationMin,
+    caloriesKcal: estimate.estimatedCaloriesKcal,
+    steps: base.steps.map((step) => ({
+      ...step,
+      distanceMeters: roundTo50(step.distanceMeters * scale),
+    })),
+  };
+}
+
+/** Mengambil rute jalan kaki dari core service FullyFilled (POST /walk-plans/estimate). */
+export async function fetchRoute(
   placeId: string,
-  { delayMs = ROUTE_DELAY_MS, signal }: FetchRouteOptions = {},
+  { signal, weightKg = DEFAULT_WEIGHT_KG }: FetchRouteOptions = {},
 ): Promise<RouteResult> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(abortError());
-      return;
-    }
+  const place = findPlaceById(placeId);
+  if (!place) throw new RouteError('Tempat tidak ditemukan.');
+  if (place.id === FAILING_PLACE_ID) throw new RouteError('Layanan rute tidak merespons.');
 
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(abortError());
-    };
-
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort);
-      const place = findPlaceById(placeId);
-      if (!place) {
-        reject(new RouteError('Tempat tidak ditemukan.'));
-      } else if (place.id === FAILING_PLACE_ID) {
-        reject(new RouteError('Layanan rute tidak merespons.'));
-      } else {
-        resolve(buildRoute(place));
-      }
-    }, delayMs);
-
-    signal?.addEventListener('abort', onAbort, { once: true });
-  });
+  try {
+    const estimate = await ApiService.estimateWalk(
+      USER_LOCATION,
+      { lat: place.lat, lng: place.lng },
+      weightKg,
+      signal,
+    );
+    return withApiEstimate(buildRoute(place), estimate);
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    if (error instanceof ApiError) throw new RouteError(error.message);
+    throw error;
+  }
 }

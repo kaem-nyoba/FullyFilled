@@ -112,6 +112,9 @@ Buka di [editor.swagger.io](https://editor.swagger.io) untuk tampilan interaktif
 3. **Batas pemanggilan:** 10 request/detik per IP, toleransi lonjakan 20. Kelebihan dijawab
    `429 TOO_MANY_REQUESTS`.
 4. Endpoint `/health` terbuka tanpa kunci.
+5. **Kunci uji untuk penilai dan kelompok lain** tidak ditulis di README (repositori ini publik).
+   Kunci uji diberikan lewat pengumpulan Edunex dan API Registry kelas. Akun uji pengguna (email dan
+   kata sandi) disediakan setelah endpoint `/auth/*` selesai.
 
 Format error selalu sama, baik dari gateway maupun dari core-service:
 

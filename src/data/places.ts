@@ -9,10 +9,14 @@ export type Place = {
   address: string;
   /** Jarak garis lurus dari lokasi pengguna, dalam meter. */
   distanceMeters: number;
+  lat: number;
+  lng: number;
 };
 
 export const SEARCH_RADIUS_KM = 2;
 export const DEFAULT_LOCATION_LABEL = 'Dekat Cihapit, Bandung';
+/** Lokasi pengguna sementara (perkiraan sekitar Cihapit) sampai memakai GPS. */
+export const USER_LOCATION = { lat: -6.9036, lng: 107.6265 };
 
 /**
  * Data contoh (mock) sampai terhubung ke layanan tempat sungguhan.
@@ -26,6 +30,8 @@ export const PLACES: readonly Place[] = [
     district: 'Cihapit, Bandung Wetan',
     address: 'Jl. Cisangkuy, Cihapit, Bandung Wetan',
     distanceMeters: 650,
+    lat: -6.9022,
+    lng: 107.6213,
   },
   {
     id: 'taman-pustaka-bunga',
@@ -34,6 +40,8 @@ export const PLACES: readonly Place[] = [
     district: 'Citarum, Bandung Wetan',
     address: 'Jl. Taman Pustaka, Citarum, Bandung Wetan',
     distanceMeters: 1100,
+    lat: -6.9101,
+    lng: 107.6283,
   },
   {
     id: 'taman-cikapayang',
@@ -42,6 +50,8 @@ export const PLACES: readonly Place[] = [
     district: 'Lebakgede, Coblong',
     address: 'Jl. Cikapayang, Lebakgede, Coblong',
     distanceMeters: 1800,
+    lat: -6.8986,
+    lng: 107.6127,
   },
   {
     id: 'puskesmas-cihapit',
@@ -50,6 +60,8 @@ export const PLACES: readonly Place[] = [
     district: 'Cihapit, Bandung Wetan',
     address: 'Jl. Cihapit, Cihapit, Bandung Wetan',
     distanceMeters: 900,
+    lat: -6.9045,
+    lng: 107.6250,
   },
   {
     id: 'klinik-sehat-citarum',
@@ -58,6 +70,8 @@ export const PLACES: readonly Place[] = [
     district: 'Citarum, Bandung Wetan',
     address: 'Jl. Citarum, Citarum, Bandung Wetan',
     distanceMeters: 1500,
+    lat: -6.9070,
+    lng: 107.6220,
   },
 ];
 

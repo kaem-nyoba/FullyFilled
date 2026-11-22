@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-
 import { fetchRoute, type RouteResult } from '@/services/route-service';
+import { useAppState } from '@/state/app-state';
 
 export type RouteState =
   | { status: 'loading' }
@@ -11,11 +11,12 @@ export type RouteState =
 export function useRoute(placeId: string): { state: RouteState; retry: () => void } {
   const [state, setState] = useState<RouteState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
-
+  const { profile } = useAppState();
+  const weightKg = profile?.currentKg;
   useEffect(() => {
     const controller = new AbortController();
 
-    fetchRoute(placeId, { signal: controller.signal })
+        fetchRoute(placeId, { signal: controller.signal, weightKg })
       .then((route) => setState({ status: 'ready', route }))
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -26,7 +27,7 @@ export function useRoute(placeId: string): { state: RouteState; retry: () => voi
       });
 
     return () => controller.abort();
-  }, [placeId, attempt]);
+  }, [placeId, attempt,weightKg]);
 
   const retry = useCallback(() => {
     setState({ status: 'loading' });
